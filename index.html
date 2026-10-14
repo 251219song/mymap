@@ -238,12 +238,10 @@
             }
         }
     </style>
-
-    <!-- 카카오 JavaScript SDK 스크립트 불러오기 (libraries=services 필수 추가) -->
-    <script type="text/javascript" src="//dapi.kakao.com/v2/maps/sdk.js?appkey=7854bfc898234e3d57c0ba60dcd56c05&libraries=services"></script>
+    <!-- 카카오 JavaScript SDK 스크립트 불러오기 (autoload=false 및 https 명시, 로드 실패 감지) -->
+    <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=7854bfc898234e3d57c0ba60dcd56c05&libraries=services&autoload=false" onerror="handleSdkLoadError()"></script>
 </head>
 <body>
-
     <div class="app-container">
         <!-- 왼쪽: 검색창 및 결과 목록 -->
         <aside class="sidebar">
@@ -288,11 +286,32 @@
 
         // 페이지가 완전히 로드된 후 SDK 로딩 완료 상태를 안전하게 확인
         window.onload = function() {
-            // 카카오맵 SDK가 안전하게 완전 로드된 후 실행되도록 kakao.maps.load() 사용
-            kakao.maps.load(function() {
-                initMap();
-            });
+            // kakao 변수가 안전하게 정의되었는지 미리 확인 (ReferenceError 방지)
+            if (typeof kakao !== 'undefined' && kakao && kakao.maps) {
+                kakao.maps.load(function() {
+                    initMap();
+                });
+            } else {
+                handleSdkLoadError();
+            }
         };
+
+        /**
+         * SDK 로드 실패 시 안전 처리 및 안내 화면 표출 함수
+         */
+        function handleSdkLoadError() {
+            var mapContainer = document.getElementById('map');
+            if (mapContainer) {
+                mapContainer.innerHTML = 
+                    '<div style="padding: 30px; text-align: center; color: #d9480f; background: #fff4e6; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; box-sizing: border-box;">' +
+                    '<h3 style="font-size: 1.1rem; margin-bottom: 8px;">⚠️ 카카오맵 SDK를 불러올 수 없습니다</h3>' +
+                    '<p style="font-size: 0.85rem; color: #495057; max-width: 320px; line-height: 1.5; margin: 0;">' +
+                    '카카오 개발자 콘솔의 <b>[Web 플랫폼 도메인]</b>에 현재 실행 주소(localhost 또는 미리보기 도메인)를 등록해야 지도가 정상 표출됩니다.' +
+                    '</p>' +
+                    '</div>';
+            }
+            renderEmptyState('지도를 불러올 수 없어 장소 검색을 실행할 수 없습니다.');
+        }
 
         /**
          * 1. 지도 초기화 함수
@@ -305,7 +324,7 @@
 
             var mapOption = {
                 center: defaultLocation, // 지도 중심좌표
-                level: 5                // 지도의 확대 레벨 (지시사항 조건: 5)
+                level: 5                 // 지도의 확대 레벨 (지시사항 조건: 5)
             };
 
             // 지도 생성
@@ -337,7 +356,7 @@
                         // 지도 중심을 현재 위치로 이동시킵니다.
                         map.setCenter(currentUserLocation);
 
-                        // 현재 위치에 표시할 마커 생성 (빨간색 기본 마커)
+                        // 현재 위치에 표시할 마커 생성
                         var locationMarker = new kakao.maps.Marker({
                             map: map,
                             position: currentUserLocation
@@ -349,12 +368,12 @@
                         });
                         locationInfoWindow.open(map, locationMarker);
 
-                        // 최초 검색 자동 실행 (현재 위치 기준 검색 편의성 제공)
+                        // 최초 검색 자동 실행 (현재 위치 기준 검색)
                         searchPlaces();
                     },
                     function(error) {
-                        console.warn("위치 정보를 가져올 수 없습니다. 기본 위치(서울시청)로 설정합니다.", error.message);
-                        // 권한 거부 또는 실패 시 기본 검색 실행
+                        console.warn("위치 정보를 가져올 수 없습니다. 기본 위치로 설정합니다.", error.message);
+                        // 권한 거부 또는 실패 시 기본 위치 기준으로 검색 실행
                         searchPlaces();
                     }
                 );
@@ -386,8 +405,7 @@
                 return false;
             }
 
-            // 카카오 장소 검색 객체를 통해 키워드로 장소를 검색합니다.
-            // 사용자의 현재 위치가 있을 경우 검색 결과 가중치를 위해 location 옵션 추가 가능
+            // 카카오 장소 검색 옵션 설정 (현재 위치 우선 검색)
             var searchOptions = {};
             if (currentUserLocation) {
                 searchOptions.location = currentUserLocation;
@@ -448,7 +466,6 @@
                     itemEl.onmouseover = function() {
                         displayInfowindow(marker, title);
                     };
-
                 })(marker, places[i].place_name, places[i]);
 
                 listEl.appendChild(itemEl);
@@ -515,3 +532,33 @@
             var content = '<div class="infowindow-content">' +
                           '  <div class="infowindow-title">' + title + '</div>' +
                           '</div>';
+
+            infowindow.setContent(content);
+            infowindow.open(map, marker);
+        }
+
+        /**
+         * 11. 검색 결과 리스트 하위 엘리먼트를 모두 제거하는 함수
+         */
+        function removeAllChildNodes(el) {
+            while (el.hasChildNodes()) {
+                el.removeChild(el.firstChild);
+            }
+        }
+
+        /**
+         * 12. 검색 실패/결과 없음 시 메시지 출력 함수
+         */
+        function renderEmptyState(message) {
+            var listEl = document.getElementById('resultsList');
+            removeAllChildNodes(listEl);
+            removeMarkers();
+
+            var emptyDiv = document.createElement('div');
+            emptyDiv.className = 'empty-state';
+            emptyDiv.innerHTML = message;
+            listEl.appendChild(emptyDiv);
+        }
+    </script>
+</body>
+</html>
