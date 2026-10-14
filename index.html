@@ -62,7 +62,7 @@
             opacity: 0.85;
         }
 
-        /* 카테고리 탭 영역 추가 */
+        /* 카테고리 탭 영역 */
         .tab-container {
             display: flex;
             background-color: #f1f3f5;
@@ -298,7 +298,7 @@
             }
         }
     </style>
-    <!-- 카카오 JavaScript SDK 스크립트 불러오기 (autoload=false) -->
+    <!-- 카카오 JavaScript SDK 스크립트 불러오기 (autoload=false 및 https 프로토콜 적용) -->
     <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=7854bfc898234e3d57c0ba60dcd56c05&libraries=services&autoload=false" onerror="handleSdkLoadError()"></script>
 </head>
 <body>
@@ -307,10 +307,10 @@
         <aside class="sidebar">
             <header class="sidebar-header">
                 <h1>📍 여가 인프라 지도</h1>
-                <p>내 주변의 문화시 및 공원을 손쉽게 찾아보세요.</p>
+                <p>내 주변의 문화시설 및 공원을 손쉽게 찾아보세요.</p>
             </header>
 
-            <!-- 카테고리 탭 버튼 추가 -->
+            <!-- 카테고리 탭 버튼 -->
             <div class="tab-container">
                 <button id="tabCulture" class="tab-button" onclick="switchCategoryTab('culture')">🎭 문화시설 (CT1)</button>
                 <button id="tabPark" class="tab-button" onclick="switchCategoryTab('park')">🌳 공원</button>
@@ -325,7 +325,7 @@
             <!-- 검색 결과 목록 출력 영역 -->
             <div id="resultsList" class="results-container">
                 <div class="empty-state">
-                    탭을 누르거나 직접 검색어를 입력하세요.
+                    위치 확인 중... 지도가 로드되면 검색 결과가 표시됩니다.
                 </div>
             </div>
         </aside>
@@ -350,10 +350,10 @@
 
     <script>
         // 전역 변수 선언
-        var map;                        // 지도 객체
-        var ps;                         // 장소 검색 서비스 객체
-        var infowindow;                 // 검색 결과 정보 표시용 인포윈도우
-        var markers = [];               // 생성된 마커 배열
+        var map = null;                 // 지도 객체
+        var ps = null;                  // 장소 검색 서비스 객체
+        var infowindow = null;          // 검색 결과 정보 표시용 인포윈도우
+        var markers = [];               // 생성된 검색 마커 배열
         var currentUserLocation = null; // 사용자 현재 위치 좌표
         var userLocationMarker = null;  // 파란 점 현재 위치 마커
         var isTrafficOverlayOn = false;// 교통정보 레이어 표시 여부
@@ -372,15 +372,12 @@
         }
 
         // 탭 종류별 마커 색상 정의
-        var markerImages = {
-            culture: createSvgMarkerImage('#4c6ef5'), // 파란색 (문화시설)
-            park: createSvgMarkerImage('#20c997'),    // 초록색 (공원)
-            default: createSvgMarkerImage('#ff6b6b') // 빨간색 (일반 검색)
-        };
+        var markerImages = {};
 
-        // 페이지 완전히 로드된 후 실행
+        // 지도가 로드 오류 없이 준비된 후 실행되도록 보장하는 window.onload 이벤트
         window.onload = function() {
             if (typeof kakao !== 'undefined' && kakao && kakao.maps) {
+                // kakao.maps.load 콜백으로 지도가 완벽히 준비되었을 때만 initMap 실행
                 kakao.maps.load(function() {
                     initMap();
                 });
@@ -389,69 +386,83 @@
             }
         };
 
-        // SDK 로드 실패 시 안내 메시지
+        // SDK 로드 실패 또는 네트워크 차단 시 처리
         function handleSdkLoadError() {
             var mapContainer = document.getElementById('map');
             if (mapContainer) {
                 mapContainer.innerHTML = 
                     '<div style="padding:30px;text-align:center;color:#d9480f;background:#fff4e6;height:100%;display:flex;flex-direction:column;justify-content:center;align-items:center;">' +
-                    '<h3>⚠️ 카카오맵 SDK 로드 실패</h3>' +
-                    '<p style="font-size:0.85rem;margin-top:8px;">카카오 개발자 콘솔의 Web 플랫폼 도메인 등록을 확인해 주세요.</p>' +
+                    '<h3>⚠️ 카카오맵 SDK 로드 오류</h3>' +
+                    '<p style="font-size:0.85rem;margin-top:8px;">카카오 개발자 콘솔(Kakao Developers)의 [Web 플랫폼 도메인]에 실행 주소가 등록되어 있는지 확인해 주세요.</p>' +
                     '</div>';
             }
         }
 
         /**
-         * 1. 지도 초기화 함수
+         * 1. 지도 초기화 함수 (SDK 완전히 로드된 후 실행)
          */
         function initMap() {
             var mapContainer = document.getElementById('map');
-            var defaultLocation = new kakao.maps.LatLng(37.5665, 126.9780); // 서울시청
+            
+            // 기본 위치 (권한 거부 또는 실패 시 서울시청 기준)
+            var defaultLocation = new kakao.maps.LatLng(37.5665, 126.9780);
 
             var mapOption = {
                 center: defaultLocation,
-                level: 5 // 지시사항 조건: 확대 레벨 5
+                level: 5 // 확대 레벨: 5
             };
 
+            // 지도 및 주 서비스 객체 생성
             map = new kakao.maps.Map(mapContainer, mapOption);
             ps = new kakao.maps.services.Places();
             infowindow = new kakao.maps.InfoWindow({ zIndex: 2 });
 
-            // 사용자 위치 요청
+            // 마커 이미지 객체 초기화
+            markerImages = {
+                culture: createSvgMarkerImage('#4c6ef5'), // 파란색 (문화시설)
+                park: createSvgMarkerImage('#20c997'),    // 초록색 (공원)
+                default: createSvgMarkerImage('#ff6b6b')  // 빨간색 (기본 검색)
+            };
+
+            // 지도가 생성된 직후 위치 권한 요청 및 화면 이동
             requestUserLocation();
         }
 
         /**
-         * 2. HTML5 Geolocation 현재 위치 요청 (내 위치 파란 점 표시)
+         * 2. 위치 권한 허용 받아 현재 위치를 중심으로 지도에 표시
          */
         function requestUserLocation() {
             if (navigator.geolocation) {
+                // 접속 위치 가져오기 요청
                 navigator.geolocation.getCurrentPosition(
                     function(position) {
                         var lat = position.coords.latitude;
                         var lon = position.coords.longitude;
 
                         currentUserLocation = new kakao.maps.LatLng(lat, lon);
+                        
+                        // 현재 위치를 중심으로 지도 위치 이동
                         map.setCenter(currentUserLocation);
 
-                        // 내 위치 파란 점 마커 표시 (Custom HTML Overlay)
+                        // 내 위치에 파란 점 마커 표시
                         drawBlueDotMarker(currentUserLocation);
 
-                        // 기본 첫화면으로 문화시설 탭 자동 실행
+                        // 위치 확보 후 기본 탭(문화시설) 자동 검색 실행
                         switchCategoryTab('culture');
                     },
                     function(error) {
-                        console.warn("위치 정보를 가져올 수 없습니다.", error.message);
+                        console.warn("위치 서비스 권한이 거부되었거나 가져올 수 없습니다. 기본 위치로 진행합니다.", error.message);
                         switchCategoryTab('culture');
                     }
                 );
             } else {
+                alert("이 브라우저에서는 위치 서비스(Geolocation)를 지원하지 않습니다.");
                 switchCategoryTab('culture');
             }
         }
 
         /**
-         * 내 현재 위치를 파란 점(Blue Dot) 오버레이로 그리기
+         * 내 위치 표시 파란 점(Blue Dot) 그리기
          */
         function drawBlueDotMarker(location) {
             if (userLocationMarker) {
@@ -470,7 +481,7 @@
         }
 
         /**
-         * 3. 현재 위치로 지도 중심 이동
+         * 3. 현재 위치 버튼 클릭 시 재이동
          */
         function moveToCurrentLocation() {
             if (currentUserLocation) {
@@ -481,7 +492,7 @@
         }
 
         /**
-         * 4. 실시간 교통정보 토글 함수 (빨강, 노랑, 파랑 표시)
+         * 4. 실시간 교통정보 토글 (빨강, 노랑, 파랑 도로 상태 표시)
          */
         function toggleTrafficOverlay() {
             var btn = document.getElementById('trafficBtn');
@@ -497,44 +508,40 @@
         }
 
         /**
-         * 5. 카테고리 탭 전환 및 검색 실행
+         * 5. 카테고리 탭 전환 검색
          */
         function switchCategoryTab(tabType) {
             currentTab = tabType;
             
-            // 탭 버튼 active 클래스 설정
             document.getElementById('tabCulture').classList.toggle('active', tabType === 'culture');
             document.getElementById('tabPark').classList.toggle('active', tabType === 'park');
-
-            // 검색어 입력창 초기화
             document.getElementById('keywordInput').value = '';
 
             var searchOptions = {};
             if (currentUserLocation) {
                 searchOptions.location = currentUserLocation;
-                searchOptions.radius = 5000; // 중심 기준 5km
+                searchOptions.radius = 5000; // 중심점 5km 이내
             }
 
             if (tabType === 'culture') {
-                // 탭 1: 카테고리 CT1 (문화시설) 검색
+                // CT1 (문화시설 카테고리) 검색
                 ps.categorySearch('CT1', placesSearchCB, searchOptions);
             } else if (tabType === 'park') {
-                // 탭 2: '공원' 키워드 검색
+                // '공원' 키워드 검색
                 ps.keywordSearch('공원', placesSearchCB, searchOptions);
             }
         }
 
         /**
-         * 6. 직접 입력 검색 실행
+         * 6. 수동 직접 검색
          */
         function executeManualSearch() {
             var keyword = document.getElementById('keywordInput').value;
             if (!keyword.trim()) {
-                alert('검색어를 입력해주세요!');
+                alert('검색어를 입력해 주세요!');
                 return;
             }
 
-            // 탭 활성화 해제
             document.getElementById('tabCulture').classList.remove('active');
             document.getElementById('tabPark').classList.remove('active');
             currentTab = 'manual';
@@ -548,20 +555,20 @@
         }
 
         /**
-         * 7. 장소 검색 콜백 함수
+         * 7. 검색 결과 콜백
          */
         function placesSearchCB(data, status) {
             if (status === kakao.maps.services.Status.OK) {
                 displayPlaces(data);
             } else if (status === kakao.maps.services.Status.ZERO_RESULT) {
-                renderEmptyState('내 주변에 해당 장소가 없습니다.');
+                renderEmptyState('주변 검색 결과가 없습니다.');
             } else {
-                renderEmptyState('검색 결과를 가져오는 중 오류가 발생했습니다.');
+                renderEmptyState('장소 검색 도중 오류가 발생했습니다.');
             }
         }
 
         /**
-         * 8. 검색 결과 목록 및 화면 마커 표출
+         * 8. 결과 마커 및 리스트 그리기
          */
         function displayPlaces(places) {
             var listEl = document.getElementById('resultsList');
@@ -570,13 +577,11 @@
             removeAllChildNodes(listEl);
             removeMarkers();
 
-            // 현재 탭에 따른 마커 이미지 선택
             var selectedMarkerImg = markerImages[currentTab] || markerImages.default;
 
             for (var i = 0; i < places.length; i++) {
                 var placePosition = new kakao.maps.LatLng(places[i].y, places[i].x);
                 
-                // 마커 생성
                 var marker = new kakao.maps.Marker({
                     position: placePosition,
                     image: selectedMarkerImg,
@@ -588,7 +593,6 @@
 
                 bounds.extend(placePosition);
 
-                // 클릭 및 오버 이벤트 바인딩
                 (function(marker, place) {
                     kakao.maps.event.addListener(marker, 'click', function() {
                         displayInfowindow(marker, place);
@@ -608,7 +612,7 @@
         }
 
         /**
-         * 9. 인포윈도우 표출 (장소 이름 + 주소)
+         * 9. 마커 클릭 시 인포윈도우 (이름 + 주소 팝업)
          */
         function displayInfowindow(marker, place) {
             var addressText = place.road_address_name ? place.road_address_name : place.address_name;
@@ -623,7 +627,7 @@
         }
 
         /**
-         * 10. 리스트 아이템 생성
+         * 10. 리스트 DOM 생성
          */
         function getListItem(index, place) {
             var el = document.createElement('div');
@@ -649,9 +653,6 @@
             return el;
         }
 
-        /**
-         * 기존 마커 제거 함수
-         */
         function removeMarkers() {
             for (var i = 0; i < markers.length; i++) {
                 markers[i].setMap(null);
@@ -659,18 +660,12 @@
             markers = [];
         }
 
-        /**
-         * 자식 노드 삭제 함수
-         */
         function removeAllChildNodes(el) {
             while (el.hasChildNodes()) {
                 el.removeChild(el.firstChild);
             }
         }
 
-        /**
-         * 결과 없음 상태 표출 함수
-         */
         function renderEmptyState(message) {
             var listEl = document.getElementById('resultsList');
             removeAllChildNodes(listEl);
