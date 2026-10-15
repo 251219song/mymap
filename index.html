@@ -298,7 +298,7 @@
             }
         }
     </style>
-    <!-- 카카오 JavaScript SDK 스크립트 불러오기 (autoload=false 및 https 프로토콜 적용) -->
+    <!-- 카카오 JavaScript SDK 스크립트 불러오기 -->
     <script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=7854bfc898234e3d57c0ba60dcd56c05&libraries=services&autoload=false" onerror="handleSdkLoadError()"></script>
 </head>
 <body>
@@ -307,25 +307,25 @@
         <aside class="sidebar">
             <header class="sidebar-header">
                 <h1>📍 여가 인프라 지도</h1>
-                <p>내 주변의 문화시설 및 공원을 손쉽게 찾아보세요.</p>
+                <p>현재 위치 중심의 문화시설 및 공원 지도입니다.</p>
             </header>
 
             <!-- 카테고리 탭 버튼 -->
             <div class="tab-container">
-                <button id="tabCulture" class="tab-button" onclick="switchCategoryTab('culture')">🎭 문화시설 (CT1)</button>
-                <button id="tabPark" class="tab-button" onclick="switchCategoryTab('park')">🌳 공원</button>
+                <button id="tabCulture" class="tab-button" onclick="switchCategoryTab('culture')">🎭 문화시설 (파랑)</button>
+                <button id="tabPark" class="tab-button" onclick="switchCategoryTab('park')">🌳 공원 (초록)</button>
             </div>
 
-            <!-- 직접 검색 양식 -->
+            <!-- 직접 키워드 검색 양식 -->
             <form id="searchForm" class="search-box" onsubmit="executeManualSearch(); return false;">
-                <input type="text" id="keywordInput" class="search-input" placeholder="직접 장소 검색..." value="">
+                <input type="text" id="keywordInput" class="search-input" placeholder="키워드로 직접 검색..." value="">
                 <button type="submit" class="search-button">검색</button>
             </form>
 
             <!-- 검색 결과 목록 출력 영역 -->
             <div id="resultsList" class="results-container">
                 <div class="empty-state">
-                    위치 확인 중... 지도가 로드되면 검색 결과가 표시됩니다.
+                    위치를 확인하는 중입니다...
                 </div>
             </div>
         </aside>
@@ -352,14 +352,14 @@
         // 전역 변수 선언
         var map = null;                 // 지도 객체
         var ps = null;                  // 장소 검색 서비스 객체
-        var infowindow = null;          // 검색 결과 정보 표시용 인포윈도우
-        var markers = [];               // 생성된 검색 마커 배열
-        var currentUserLocation = null; // 사용자 현재 위치 좌표
-        var userLocationMarker = null;  // 파란 점 현재 위치 마커
-        var isTrafficOverlayOn = false;// 교통정보 레이어 표시 여부
-        var currentTab = null;          // 현재 선택된 탭 ('culture' | 'park' | null)
+        var infowindow = null;          // 인포윈도우 객체
+        var markers = [];               // 마커 배열
+        var currentUserLocation = null; // 현재 위치 좌표
+        var userLocationMarker = null;  // 현재 위치 표시 파란 점 마커
+        var isTrafficOverlayOn = false;// 교통정보 레이어 온/오프
+        var currentTab = 'culture';     // 현재 선택된 탭 ('culture' | 'park' | 'manual')
 
-        // SVG 기반 커스텀 마커 이미지 생성 함수
+        // 커스텀 SVG 마커 생성 함수
         function createSvgMarkerImage(fillColor) {
             var svgString = '<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">' +
                 '<path fill="' + fillColor + '" stroke="#FFFFFF" stroke-width="2" d="M14 0C6.27 0 0 6.27 0 14c0 10.5 14 22 14 22s14-11.5 14-22C28 6.27 21.73 0 14 0z"/>' +
@@ -371,13 +371,11 @@
             return new kakao.maps.MarkerImage(imageSrc, imageSize, imageOption);
         }
 
-        // 탭 종류별 마커 색상 정의
         var markerImages = {};
 
-        // 지도가 로드 오류 없이 준비된 후 실행되도록 보장하는 window.onload 이벤트
+        // 페이지 완전히 로드 후 지도가 안전하게 생성되도록 설정
         window.onload = function() {
             if (typeof kakao !== 'undefined' && kakao && kakao.maps) {
-                // kakao.maps.load 콜백으로 지도가 완벽히 준비되었을 때만 initMap 실행
                 kakao.maps.load(function() {
                     initMap();
                 });
@@ -386,54 +384,49 @@
             }
         };
 
-        // SDK 로드 실패 또는 네트워크 차단 시 처리
         function handleSdkLoadError() {
             var mapContainer = document.getElementById('map');
             if (mapContainer) {
                 mapContainer.innerHTML = 
                     '<div style="padding:30px;text-align:center;color:#d9480f;background:#fff4e6;height:100%;display:flex;flex-direction:column;justify-content:center;align-items:center;">' +
-                    '<h3>⚠️ 카카오맵 SDK 로드 오류</h3>' +
-                    '<p style="font-size:0.85rem;margin-top:8px;">카카오 개발자 콘솔(Kakao Developers)의 [Web 플랫폼 도메인]에 실행 주소가 등록되어 있는지 확인해 주세요.</p>' +
+                    '<h3>⚠️ 카카오맵 SDK 로드 실패</h3>' +
+                    '<p style="font-size:0.85rem;margin-top:8px;">[Web 플랫폼 도메인] 등록 상태를 확인해 주세요.</p>' +
                     '</div>';
             }
         }
 
         /**
-         * 1. 지도 초기화 함수 (SDK 완전히 로드된 후 실행)
+         * 1. 지도 초기화
          */
         function initMap() {
             var mapContainer = document.getElementById('map');
-            
-            // 기본 위치 (권한 거부 또는 실패 시 서울시청 기준)
-            var defaultLocation = new kakao.maps.LatLng(37.5665, 126.9780);
+            var defaultLocation = new kakao.maps.LatLng(37.5665, 126.9780); // 서울시청 기본값
 
             var mapOption = {
                 center: defaultLocation,
-                level: 5 // 확대 레벨: 5
+                level: 5 // 확대 레벨 5
             };
 
-            // 지도 및 주 서비스 객체 생성
             map = new kakao.maps.Map(mapContainer, mapOption);
             ps = new kakao.maps.services.Places();
             infowindow = new kakao.maps.InfoWindow({ zIndex: 2 });
 
-            // 마커 이미지 객체 초기화
+            // 탭 마커 색상 정의
             markerImages = {
-                culture: createSvgMarkerImage('#4c6ef5'), // 파란색 (문화시설)
-                park: createSvgMarkerImage('#20c997'),    // 초록색 (공원)
-                default: createSvgMarkerImage('#ff6b6b')  // 빨간색 (기본 검색)
+                culture: createSvgMarkerImage('#4c6ef5'), // 문화시설 - 파란색
+                park: createSvgMarkerImage('#20c997'),    // 공원 - 초록색
+                manual: createSvgMarkerImage('#ff6b6b')   // 직접검색 - 빨간색
             };
 
-            // 지도가 생성된 직후 위치 권한 요청 및 화면 이동
+            // 내 위치 권한 요청 및 검색 시작
             requestUserLocation();
         }
 
         /**
-         * 2. 위치 권한 허용 받아 현재 위치를 중심으로 지도에 표시
+         * 2. 내 현재 위치 파악 후 지도 중심 설정
          */
         function requestUserLocation() {
             if (navigator.geolocation) {
-                // 접속 위치 가져오기 요청
                 navigator.geolocation.getCurrentPosition(
                     function(position) {
                         var lat = position.coords.latitude;
@@ -441,13 +434,13 @@
 
                         currentUserLocation = new kakao.maps.LatLng(lat, lon);
                         
-                        // 현재 위치를 중심으로 지도 위치 이동
+                        // 현재 사용자 위치로 중심 이동
                         map.setCenter(currentUserLocation);
 
-                        // 내 위치에 파란 점 마커 표시
+                        // 파란 점(Blue Dot) 마커 생성
                         drawBlueDotMarker(currentUserLocation);
 
-                        // 위치 확보 후 기본 탭(문화시설) 자동 검색 실행
+                        // 내 위치 기준으로 문화시설 검색 실행
                         switchCategoryTab('culture');
                     },
                     function(error) {
@@ -456,13 +449,12 @@
                     }
                 );
             } else {
-                alert("이 브라우저에서는 위치 서비스(Geolocation)를 지원하지 않습니다.");
                 switchCategoryTab('culture');
             }
         }
 
         /**
-         * 내 위치 표시 파란 점(Blue Dot) 그리기
+         * 내 위치 파란 점(Blue Dot) 오버레이
          */
         function drawBlueDotMarker(location) {
             if (userLocationMarker) {
@@ -481,7 +473,7 @@
         }
 
         /**
-         * 3. 현재 위치 버튼 클릭 시 재이동
+         * 내 위치 버튼 클릭 시 지도 이동
          */
         function moveToCurrentLocation() {
             if (currentUserLocation) {
@@ -492,7 +484,7 @@
         }
 
         /**
-         * 4. 실시간 교통정보 토글 (빨강, 노랑, 파랑 도로 상태 표시)
+         * 교통정보 토글 (빨강/노랑/파랑)
          */
         function toggleTrafficOverlay() {
             var btn = document.getElementById('trafficBtn');
@@ -508,7 +500,7 @@
         }
 
         /**
-         * 5. 카테고리 탭 전환 검색
+         * 3. 탭 클릭 시 현재 지도 중심 위치 기준 주변 장소 검색
          */
         function switchCategoryTab(tabType) {
             currentTab = tabType;
@@ -517,23 +509,25 @@
             document.getElementById('tabPark').classList.toggle('active', tabType === 'park');
             document.getElementById('keywordInput').value = '';
 
-            var searchOptions = {};
-            if (currentUserLocation) {
-                searchOptions.location = currentUserLocation;
-                searchOptions.radius = 5000; // 중심점 5km 이내
-            }
+            // 검색 중심점 설정: 사용자의 현재 위치 또는 현재 지도 중심 좌표
+            var centerLocation = currentUserLocation ? currentUserLocation : map.getCenter();
+
+            var searchOptions = {
+                location: centerLocation, // 해당 좌표 중심
+                radius: 4000              // 반경 4km 내
+            };
 
             if (tabType === 'culture') {
-                // CT1 (문화시설 카테고리) 검색
+                // 문화시설 (CT1) -> 파란색 마커
                 ps.categorySearch('CT1', placesSearchCB, searchOptions);
             } else if (tabType === 'park') {
-                // '공원' 키워드 검색
+                // 공원 키워드 -> 초록색 마커
                 ps.keywordSearch('공원', placesSearchCB, searchOptions);
             }
         }
 
         /**
-         * 6. 수동 직접 검색
+         * 4. 직접 검색창 입력 시
          */
         function executeManualSearch() {
             var keyword = document.getElementById('keywordInput').value;
@@ -544,31 +538,33 @@
 
             document.getElementById('tabCulture').classList.remove('active');
             document.getElementById('tabPark').classList.remove('active');
+            
+            // 직접 검색 상태 지정 -> 빨간색 마커
             currentTab = 'manual';
 
-            var searchOptions = {};
-            if (currentUserLocation) {
-                searchOptions.location = currentUserLocation;
-            }
+            var centerLocation = currentUserLocation ? currentUserLocation : map.getCenter();
+            var searchOptions = {
+                location: centerLocation
+            };
 
             ps.keywordSearch(keyword, placesSearchCB, searchOptions);
         }
 
         /**
-         * 7. 검색 결과 콜백
+         * 장소 검색 결과 콜백
          */
         function placesSearchCB(data, status) {
             if (status === kakao.maps.services.Status.OK) {
                 displayPlaces(data);
             } else if (status === kakao.maps.services.Status.ZERO_RESULT) {
-                renderEmptyState('주변 검색 결과가 없습니다.');
+                renderEmptyState('주변에 검색 결과가 존재하지 않습니다.');
             } else {
-                renderEmptyState('장소 검색 도중 오류가 발생했습니다.');
+                renderEmptyState('검색 중 오류가 발생했습니다.');
             }
         }
 
         /**
-         * 8. 결과 마커 및 리스트 그리기
+         * 마커 및 화면 표시
          */
         function displayPlaces(places) {
             var listEl = document.getElementById('resultsList');
@@ -577,14 +573,15 @@
             removeAllChildNodes(listEl);
             removeMarkers();
 
-            var selectedMarkerImg = markerImages[currentTab] || markerImages.default;
+            // 현재 탭에 맞는 색상의 마커 이미지 가져오기 (culture=파랑, park=초록, manual=빨강)
+            var selectedMarkerImg = markerImages[currentTab] || markerImages.manual;
 
             for (var i = 0; i < places.length; i++) {
                 var placePosition = new kakao.maps.LatLng(places[i].y, places[i].x);
                 
                 var marker = new kakao.maps.Marker({
                     position: placePosition,
-                    image: selectedMarkerImg,
+                    image: selectedMarkerImg, // 지정된 색상 마커 적용
                     map: map
                 });
 
@@ -608,11 +605,12 @@
                 listEl.appendChild(itemEl);
             }
 
+            // 지도 범위를 결과 마커들에 맞게 재설정
             map.setBounds(bounds);
         }
 
         /**
-         * 9. 마커 클릭 시 인포윈도우 (이름 + 주소 팝업)
+         * 팝업 인포윈도우 (장소명 + 주소)
          */
         function displayInfowindow(marker, place) {
             var addressText = place.road_address_name ? place.road_address_name : place.address_name;
@@ -627,7 +625,7 @@
         }
 
         /**
-         * 10. 리스트 DOM 생성
+         * 리스트 항목 생성
          */
         function getListItem(index, place) {
             var el = document.createElement('div');
